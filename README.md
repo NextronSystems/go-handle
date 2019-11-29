@@ -15,7 +15,7 @@ const (
 
 Before querying the handles, create a buffer that can hold all process handles. On most machines, ~5MB should be fine.
 
-Then call the function `handle.QueryHandles(...)`. This function gets the following arguments:
+Then call the function `handle.QueryHandles(...)`. This function takes the following arguments:
 
  - `buf`: A buffer that can hold all process handles
  - `processFilter` _(optional)_: Only show process handles of process with this id
