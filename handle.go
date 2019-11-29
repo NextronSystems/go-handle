@@ -123,6 +123,7 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType) (
 		}
 	}
 	log("type filter: %#v", typeFilter)
+	log("sysinfo count: %d", sysinfo.Count)
 	for i := uint3264(0); i < sysinfo.Count; i++ {
 		handle := sysinfo.SystemHandle[i]
 		if processFilter != nil && *processFilter != handle.UniqueProcessID {
