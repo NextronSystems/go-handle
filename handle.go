@@ -131,9 +131,6 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType) (
 		if _, ok := processErrs[handle.UniqueProcessID]; ok {
 			continue
 		}
-		if handle.ObjectTypeIndex != 37 {
-			continue
-		}
 		// unknown type, query the type information
 		if _, ok := typeMapping[handle.ObjectTypeIndex]; !ok {
 			log("handle type %d of handle 0x%X is unknown, querying for type ...", handle.UniqueProcessID, handle.HandleValue)
