@@ -48,9 +48,11 @@ type systemHandle struct {
 	GrantedAccess         uint3264
 }
 
+const maxHandles = 500000
+
 type systemHandleInformation struct {
 	Count        uint3264
-	SystemHandle [150000]systemHandle
+	SystemHandle [maxHandles]systemHandle
 }
 
 type objectTypeInformation struct {
@@ -118,7 +120,7 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType) (
 		}
 	}
 	log("type filter: %#v", typeFilter)
-	for i := uint3264(0); i < sysinfo.Count; i++ {
+	for i := uint3264(0); i < sysinfo.Count && i < maxHandles; i++ {
 		handle := sysinfo.SystemHandle[i]
 		if processFilter != nil && *processFilter != handle.UniqueProcessID {
 			log("skipping handle of process %d due to process filter %d", handle.UniqueProcessID, processFilter)
