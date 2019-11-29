@@ -4,7 +4,9 @@ package handle
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"strings"
@@ -88,8 +90,8 @@ type MutantHandle struct {
 	basicHandle
 }
 
-func QueryHandles(buf []byte, processFilter uint16, handleTypes []HandleType) (handles []Handle, err error) {
-	ownpid := processFilter == uint16(os.Getpid())
+func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType) (handles []Handle, err error) {
+	ownpid := uint16(os.Getpid())
 	ownprocess, err := windows.GetCurrentProcess()
 	if err != nil {
 		return nil, fmt.Errorf("could not get current process: %s", err)
@@ -103,6 +105,7 @@ func QueryHandles(buf []byte, processFilter uint16, handleTypes []HandleType) (h
 		typeMapping    = make(map[uint8]HandleType) // what objecttypeindex equals which handletype
 		typeMappingErr = make(map[uint8]int)
 		typeFilter     = make(map[HandleType]struct{})
+		processErrs    = make(map[uint16]struct{})
 	)
 	if len(handleTypes) == 0 {
 		// use all handle types if no handle type filter is set
@@ -114,15 +117,30 @@ func QueryHandles(buf []byte, processFilter uint16, handleTypes []HandleType) (h
 			typeFilter[handleType] = struct{}{}
 		}
 	}
+	log("type filter: %#v", typeFilter)
 	for i := uint3264(0); i < sysinfo.Count; i++ {
 		handle := sysinfo.SystemHandle[i]
-		if processFilter >= 0 && processFilter != handle.UniqueProcessID {
+		if processFilter != nil && *processFilter != handle.UniqueProcessID {
+			log("skipping handle of process %d due to process filter %d", handle.UniqueProcessID, processFilter)
+			continue
+		}
+		if _, ok := processErrs[handle.UniqueProcessID]; ok {
+			continue
+		}
+		if handle.ObjectTypeIndex != 37 {
 			continue
 		}
 		// unknown type, query the type information
 		if _, ok := typeMapping[handle.ObjectTypeIndex]; !ok {
-			handleType, err := queryTypeInformation(handle, ownprocess, ownpid)
+			log("handle type %d of handle 0x%X is unknown, querying for type ...", handle.UniqueProcessID, handle.HandleValue)
+			handleType, err := queryTypeInformation(handle, ownprocess, ownpid == handle.UniqueProcessID)
+			if err == errOpenProcess {
+				log("skipping process %d due to open error", handle.UniqueProcessID)
+				processErrs[handle.UniqueProcessID] = struct{}{}
+				continue
+			}
 			if err != nil {
+				log("handle type %d could not be queried: %s", handle.ObjectTypeIndex, err)
 				// to prevent querying tons of types that can't be queries, count errors per
 				// handle type and ignore this type if more than X tries failed.
 				typeMappingErr[handle.ObjectTypeIndex]++
@@ -130,30 +148,34 @@ func QueryHandles(buf []byte, processFilter uint16, handleTypes []HandleType) (h
 					typeMapping[handle.ObjectTypeIndex] = "unknown"
 				}
 			} else {
+				log("handle type %d is of type %s", handle.ObjectTypeIndex, handleType)
 				typeMapping[handle.ObjectTypeIndex] = handleType
 			}
 		}
 		handleType := typeMapping[handle.ObjectTypeIndex]
 		if _, ok := typeFilter[handleType]; !ok {
 			// handle type not in filter list, skip
+			log("skipping handle type %q due to handle filters", handleType)
 			continue
 		}
 		switch handleType {
 		case HandleTypeFile, HandleTypeEvent, HandleTypeMutant:
 			// get name of handle (same for file, event and mutant)
-			name, err := queryNameInformation(handle, ownprocess, ownpid)
+			name, err := queryNameInformation(handle, ownprocess, ownpid == handle.UniqueProcessID)
 			if err != nil {
+				log("could not get handle name for handle 0x%X of type %s: %s", handle.HandleValue, handleType, err)
 				name = ""
 			}
 			basic := basicHandle{p: handle.UniqueProcessID, h: handle.HandleValue, n: name}
+			log("handle found: process: %d handle: 0x%X name: %s", basic.p, basic.h, basic.n)
 			// add handle to result set
 			switch handleType {
 			case HandleTypeFile:
-				handles = append(handles, FileHandle{basic})
+				handles = append(handles, &FileHandle{basic})
 			case HandleTypeEvent:
-				handles = append(handles, EventHandle{basic})
+				handles = append(handles, &EventHandle{basic})
 			case HandleTypeMutant:
-				handles = append(handles, MutantHandle{basic})
+				handles = append(handles, &MutantHandle{basic})
 			}
 		}
 	}
@@ -161,7 +183,12 @@ func QueryHandles(buf []byte, processFilter uint16, handleTypes []HandleType) (h
 }
 
 func querySystemInformation(buf []byte) error {
-	ret, _, _ := procNtQuerySystemInformation.Call(16, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), 0)
+	ret, _, _ := procNtQuerySystemInformation.Call(
+		16,
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+		0,
+	)
 	if ret != 0 {
 		return syscall.GetLastError()
 	}
@@ -169,24 +196,44 @@ func querySystemInformation(buf []byte) error {
 }
 
 var nameAndTypeBuffer = make([]byte, 4096)
+var errOpenProcess = errors.New("could not open process")
 
 func queryTypeInformation(handle systemHandle, ownprocess windows.Handle, ownpid bool) (HandleType, error) {
 	// duplicate handle if it's not from our own process
 	var h windows.Handle
 	if !ownpid {
-		p, err := windows.OpenProcess(windows.PROCESS_DUP_HANDLE, true, uint32(handle.UniqueProcessID))
+		p, err := windows.OpenProcess(
+			windows.PROCESS_DUP_HANDLE,
+			true,
+			uint32(handle.UniqueProcessID),
+		)
 		if err != nil {
-			return "", err
+			log("could not open process %d: %s", handle.UniqueProcessID, err)
+			return "", errOpenProcess
 		}
 		defer windows.CloseHandle(p)
-		if err := windows.DuplicateHandle(p, windows.Handle(handle.HandleValue), ownprocess, &h, 0, false, windows.DUPLICATE_SAME_ACCESS); err != nil {
+		if err := windows.DuplicateHandle(
+			p,
+			windows.Handle(handle.HandleValue),
+			ownprocess,
+			&h,
+			0,
+			false,
+			windows.DUPLICATE_SAME_ACCESS,
+		); err != nil {
+			log("could not duplicate process handle 0x%X of process %d: %s", handle.HandleValue, handle.UniqueProcessID, err)
 			return "", err
 		}
 		defer windows.CloseHandle(h)
 	} else {
 		h = windows.Handle(handle.HandleValue)
 	}
-	ret, _, _ := procNtQuerySystemInformation.Call(uintptr(h), 2, uintptr(unsafe.Pointer(&nameAndTypeBuffer[0])), uintptr(len(nameAndTypeBuffer)), 0)
+	ret, _, _ := procNtQueryObject.Call(
+		uintptr(h), 2,
+		uintptr(unsafe.Pointer(&nameAndTypeBuffer[0])),
+		uintptr(len(nameAndTypeBuffer)),
+		0,
+	)
 	if ret != 0 {
 		return "", fmt.Errorf("NTStatus(0x%X)", ret)
 	}
@@ -197,19 +244,37 @@ func queryNameInformation(handle systemHandle, ownprocess windows.Handle, ownpid
 	// duplicate handle if it's not from our own process
 	var h windows.Handle
 	if !ownpid {
-		p, err := windows.OpenProcess(windows.PROCESS_DUP_HANDLE, true, uint32(handle.UniqueProcessID))
+		p, err := windows.OpenProcess(
+			windows.PROCESS_DUP_HANDLE,
+			true,
+			uint32(handle.UniqueProcessID),
+		)
 		if err != nil {
 			return "", err
 		}
 		defer windows.CloseHandle(p)
-		if err := windows.DuplicateHandle(p, windows.Handle(handle.HandleValue), ownprocess, &h, 0, false, windows.DUPLICATE_SAME_ACCESS); err != nil {
+		if err := windows.DuplicateHandle(
+			p,
+			windows.Handle(handle.HandleValue),
+			ownprocess,
+			&h,
+			0,
+			false,
+			windows.DUPLICATE_SAME_ACCESS,
+		); err != nil {
 			return "", err
 		}
 		defer windows.CloseHandle(h)
 	} else {
 		h = windows.Handle(handle.HandleValue)
 	}
-	ret, _, _ := procNtQuerySystemInformation.Call(uintptr(h), 1, uintptr(unsafe.Pointer(&nameAndTypeBuffer[0])), uintptr(len(nameAndTypeBuffer)), 0)
+	ret, _, _ := procNtQueryObject.Call(
+		uintptr(h),
+		1,
+		uintptr(unsafe.Pointer(&nameAndTypeBuffer[0])),
+		uintptr(len(nameAndTypeBuffer)),
+		0,
+	)
 	if ret != 0 {
 		return "", fmt.Errorf("NTStatus(0x%X)", ret)
 	}
@@ -230,4 +295,18 @@ func (u unicodeString) String() string {
 		utf[len(utf)-1] = utf8.RuneError
 	}
 	return strings.Trim(string(utf16.Decode(utf)), "\x00")
+}
+
+var writer io.Writer
+
+// DebugWriter sets a debug writer for debug logging, e.g. os.Stdout
+func DebugWriter(w io.Writer) {
+	writer = w
+}
+
+func log(format string, a ...interface{}) {
+	if writer == nil {
+		return
+	}
+	fmt.Fprintf(writer, format+"\n", a...)
 }
