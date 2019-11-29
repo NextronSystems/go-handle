@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"runtime"
 	"strings"
 	"syscall"
 	"unicode/utf16"
@@ -180,6 +181,7 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType) (
 			}
 		}
 	}
+	runtime.KeepAlive(buf)
 	return handles, nil
 }
 
@@ -238,7 +240,9 @@ func queryTypeInformation(handle systemHandle, ownprocess windows.Handle, ownpid
 	if ret != 0 {
 		return "", fmt.Errorf("NTStatus(0x%X)", ret)
 	}
-	return HandleType((*objectTypeInformation)(unsafe.Pointer(&nameAndTypeBuffer[0])).TypeName.String()), nil
+	name := HandleType((*objectTypeInformation)(unsafe.Pointer(&nameAndTypeBuffer[0])).TypeName.String())
+	runtime.KeepAlive(nameAndTypeBuffer)
+	return name, nil
 }
 
 func queryNameInformation(handle systemHandle, ownprocess windows.Handle, ownpid bool) (string, error) {
@@ -279,7 +283,9 @@ func queryNameInformation(handle systemHandle, ownprocess windows.Handle, ownpid
 	if ret != 0 {
 		return "", fmt.Errorf("NTStatus(0x%X)", ret)
 	}
-	return (*objectNameInformation)(unsafe.Pointer(&nameAndTypeBuffer[0])).Name.String(), nil
+	name := (*objectNameInformation)(unsafe.Pointer(&nameAndTypeBuffer[0])).Name.String()
+	runtime.KeepAlive(nameAndTypeBuffer)
+	return name, nil
 }
 
 func (u unicodeString) String() string {
@@ -295,6 +301,7 @@ func (u unicodeString) String() string {
 	if len(b)/2 < len(utf) {
 		utf[len(utf)-1] = utf8.RuneError
 	}
+	runtime.KeepAlive(u.Buffer)
 	return strings.Trim(string(utf16.Decode(utf)), "\x00")
 }
 
