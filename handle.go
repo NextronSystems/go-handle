@@ -63,6 +63,10 @@ type objectNameInformation struct {
 	Name unicodeString
 }
 
+func NtSuccess(rt uint32) bool {
+	return rt < 0x8000000
+}
+
 type Handle interface {
 	Process() uint16
 	Handle() uint16
@@ -97,6 +101,7 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType) (
 	if err != nil {
 		return nil, fmt.Errorf("could not get current process: %s", err)
 	}
+	defer windows.CloseHandle(ownprocess)
 	// load all handle information to buffer and convert it to systemHandleInformation
 	if err := querySystemInformation(buf); err != nil {
 		return nil, fmt.Errorf("could not query system information: %s", err)
@@ -193,7 +198,7 @@ func querySystemInformation(buf []byte) error {
 		uintptr(len(buf)),
 		0,
 	)
-	if ret != 0 {
+	if !NtSuccess(uint32(ret)) {
 		return fmt.Errorf("NTStatus(0x%X)", ret)
 	}
 	return nil
@@ -238,7 +243,7 @@ func queryTypeInformation(handle systemHandle, ownprocess windows.Handle, ownpid
 		uintptr(len(nameAndTypeBuffer)),
 		0,
 	)
-	if ret != 0 {
+	if !NtSuccess(uint32(ret)) {
 		return "", fmt.Errorf("NTStatus(0x%X)", ret)
 	}
 	name := HandleType((*objectTypeInformation)(unsafe.Pointer(&nameAndTypeBuffer[0])).TypeName.String())
@@ -281,7 +286,7 @@ func queryNameInformation(handle systemHandle, ownprocess windows.Handle, ownpid
 		uintptr(len(nameAndTypeBuffer)),
 		0,
 	)
-	if ret != 0 {
+	if !NtSuccess(uint32(ret)) {
 		return "", fmt.Errorf("NTStatus(0x%X)", ret)
 	}
 	name := (*objectNameInformation)(unsafe.Pointer(&nameAndTypeBuffer[0])).Name.String()
