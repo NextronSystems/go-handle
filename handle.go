@@ -194,7 +194,7 @@ func querySystemInformation(buf []byte) error {
 		0,
 	)
 	if ret != 0 {
-		return syscall.GetLastError()
+		return fmt.Errorf("NTStatus(0x%X)", ret)
 	}
 	return nil
 }
