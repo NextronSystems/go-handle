@@ -19,6 +19,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+const NtStatusInfoLengthMismatch = 0xC0000004
+
 type HandleType string
 
 const (
@@ -64,7 +66,7 @@ type objectNameInformation struct {
 }
 
 func NtSuccess(rt uint32) bool {
-	return rt < 0x8000000
+	return rt < 0x8000000 && rt != NtStatusInfoLengthMismatch
 }
 
 type Handle interface {
