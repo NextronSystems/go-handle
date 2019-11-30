@@ -37,12 +37,12 @@ var (
 )
 
 var skipGrantedAccess = map[uint3264]struct{}{
-	/*0x1a0089: {},
+	0x1a0089: {},
 	0x1a019f: {},
 	0x12019f: {},
 	0x120189: {},
 	0x1f01ff: {},
-	0x100081: {},*/
+	0x100081: {},
 }
 
 type unicodeString struct {
@@ -198,7 +198,7 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType) (
 			select {
 			case <-done:
 			case <-time.After(time.Second * 25):
-				return nil, fmt.Errorf("timeout when querying for handle name of process %d's handle 0x%X (type %s) and granted access 0x%X", handle.UniqueProcessID, handle.HandleValue, handleType, handle.GrantedAccess)
+				return nil, fmt.Errorf("timeout when querying for handle name of process %d's handle 0x%X (type %s) and granted access 0x%X. Please report this issue to github.com/Codehardt/go-handle", handle.UniqueProcessID, handle.HandleValue, handleType, handle.GrantedAccess)
 			}
 			basic := basicHandle{p: handle.UniqueProcessID, h: handle.HandleValue, n: name}
 			log("handle found: process: %d handle: 0x%X name: %s", basic.p, basic.h, basic.n)
