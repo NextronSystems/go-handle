@@ -108,6 +108,9 @@ type MutantHandle struct {
 }
 
 func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType) (handles []Handle, err error) {
+	for i := 0; i < int(unsafe.Sizeof(uint3264(0))); i++ {
+		buf[i] = 0 // reset the first 32/64 bits in buffer
+	}
 	ownpid := uint16(os.Getpid())
 	ownprocess, err := windows.GetCurrentProcess()
 	if err != nil {
