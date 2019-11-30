@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 	"unsafe"
@@ -34,6 +35,15 @@ var (
 	procNtQuerySystemInformation = modntdll.NewProc("NtQuerySystemInformation")
 	procNtQueryObject            = modntdll.NewProc("NtQueryObject")
 )
+
+var skipGrantedAccess = map[uint3264]struct{}{
+	/*0x1a0089: {},
+	0x1a019f: {},
+	0x12019f: {},
+	0x120189: {},
+	0x1f01ff: {},
+	0x100081: {},*/
+}
 
 type unicodeString struct {
 	Length        uint16
@@ -133,6 +143,10 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType) (
 	log("sysinfo count: %d", sysinfo.Count)
 	for i := uint3264(0); i < sysinfo.Count; i++ {
 		handle := sysinfo.SystemHandle[i]
+		if _, ok := skipGrantedAccess[handle.GrantedAccess]; ok {
+			log("skipping handle due to granted access 0x%X", handle.GrantedAccess)
+			continue
+		}
 		if processFilter != nil && *processFilter != handle.UniqueProcessID {
 			log("skipping handle of process %d due to process filter %d", handle.UniqueProcessID, processFilter)
 			continue
@@ -171,10 +185,20 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType) (
 		switch handleType {
 		case HandleTypeFile, HandleTypeEvent, HandleTypeMutant:
 			// get name of handle (same for file, event and mutant)
-			name, err := queryNameInformation(handle, ownprocess, ownpid == handle.UniqueProcessID)
-			if err != nil {
-				log("could not get handle name for handle 0x%X of type %s: %s", handle.HandleValue, handleType, err)
-				name = ""
+			done := make(chan struct{}, 1)
+			var name string
+			go func() {
+				name, err = queryNameInformation(handle, ownprocess, ownpid == handle.UniqueProcessID)
+				if err != nil {
+					log("could not get handle name for handle 0x%X of type %s: %s", handle.HandleValue, handleType, err)
+					name = ""
+				}
+				done <- struct{}{}
+			}()
+			select {
+			case <-done:
+			case <-time.After(time.Second * 25):
+				return nil, fmt.Errorf("timeout when querying for handle name of process %d's handle 0x%X (type %s) and granted access 0x%X", handle.UniqueProcessID, handle.HandleValue, handleType, handle.GrantedAccess)
 			}
 			basic := basicHandle{p: handle.UniqueProcessID, h: handle.HandleValue, n: name}
 			log("handle found: process: %d handle: 0x%X name: %s", basic.p, basic.h, basic.n)
