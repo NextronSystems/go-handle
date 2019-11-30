@@ -281,6 +281,7 @@ func queryNameInformation(handle systemHandle, ownprocess windows.Handle, ownpid
 	} else {
 		h = windows.Handle(handle.HandleValue)
 	}
+	log("query (access 0x%X)", handle.GrantedAccess)
 	ret, _, _ := procNtQueryObject.Call(
 		uintptr(h),
 		1,
