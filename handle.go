@@ -36,15 +36,6 @@ var (
 	procNtQueryObject            = modntdll.NewProc("NtQueryObject")
 )
 
-var skipGrantedAccess = map[uint3264]struct{}{
-	0x1a0089: {},
-	0x1a019f: {},
-	0x12019f: {},
-	0x120189: {},
-	0x1f01ff: {},
-	0x100081: {},
-}
-
 type unicodeString struct {
 	Length        uint16
 	MaximumLength uint16
@@ -107,7 +98,7 @@ type MutantHandle struct {
 	basicHandle
 }
 
-func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType) (handles []Handle, err error) {
+func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType, queryTimeout time.Duration) (handles []Handle, err error) {
 	// reset buffer, querying system information seem to require a 0-valued buffer.
 	// Without this reset, the below sysinfo.Count might be wrong.
 	for i := 0; i < len(buf); i++ {
@@ -148,10 +139,6 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType) (
 	log("sysinfo count: %d", sysinfo.Count)
 	for i := uint3264(0); i < sysinfo.Count; i++ {
 		handle := sysinfo.SystemHandle[i]
-		if _, ok := skipGrantedAccess[handle.GrantedAccess]; ok {
-			log("skipping handle due to granted access 0x%X", handle.GrantedAccess)
-			continue
-		}
 		if processFilter != nil && *processFilter != handle.UniqueProcessID {
 			log("skipping handle of process %d due to process filter %d", handle.UniqueProcessID, processFilter)
 			continue
@@ -162,23 +149,37 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType) (
 		// unknown type, query the type information
 		if _, ok := typeMapping[handle.ObjectTypeIndex]; !ok {
 			log("handle type %d of handle 0x%X is unknown, querying for type ...", handle.UniqueProcessID, handle.HandleValue)
-			handleType, err := queryTypeInformation(handle, ownprocess, ownpid == handle.UniqueProcessID)
-			if err == errOpenProcess {
-				log("skipping process %d due to open error", handle.UniqueProcessID)
-				processErrs[handle.UniqueProcessID] = struct{}{}
-				continue
-			}
-			if err != nil {
-				log("handle type %d could not be queried: %s", handle.ObjectTypeIndex, err)
-				// to prevent querying tons of types that can't be queries, count errors per
-				// handle type and ignore this type if more than X tries failed.
-				typeMappingErr[handle.ObjectTypeIndex]++
-				if typeMappingErr[handle.ObjectTypeIndex] >= 10 {
-					typeMapping[handle.ObjectTypeIndex] = "unknown"
+			done := make(chan struct{}, 1)
+			var (
+				handleTypeRoutine HandleType
+				errRoutine        error
+			)
+			go func() {
+				handleTypeRoutine, errRoutine = queryTypeInformation(handle, ownprocess, ownpid == handle.UniqueProcessID)
+				done <- struct{}{}
+			}()
+			select {
+			case <-done:
+				if errRoutine == errOpenProcess {
+					log("skipping process %d due to open error", handle.UniqueProcessID)
+					processErrs[handle.UniqueProcessID] = struct{}{}
+					continue
 				}
-			} else {
-				log("handle type %d is of type %s", handle.ObjectTypeIndex, handleType)
-				typeMapping[handle.ObjectTypeIndex] = handleType
+				if errRoutine != nil {
+					log("handle type %d could not be queried: %s", handle.ObjectTypeIndex, errRoutine)
+					// to prevent querying tons of types that can't be queries, count errors per
+					// handle type and ignore this type if more than X tries failed.
+					typeMappingErr[handle.ObjectTypeIndex]++
+					if typeMappingErr[handle.ObjectTypeIndex] >= 10 {
+						typeMapping[handle.ObjectTypeIndex] = "unknown"
+					}
+				} else {
+					log("handle type %d is of type %s", handle.ObjectTypeIndex, handleTypeRoutine)
+					typeMapping[handle.ObjectTypeIndex] = handleTypeRoutine
+				}
+			case <-time.After(queryTimeout):
+				log("timeout when querying process %d handle 0x%X with granted access 0x%X", handle.ObjectTypeIndex, handle.HandleValue, handle.GrantedAccess)
+				continue
 			}
 		}
 		handleType := typeMapping[handle.ObjectTypeIndex]
@@ -191,19 +192,24 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType) (
 		case HandleTypeFile, HandleTypeEvent, HandleTypeMutant:
 			// get name of handle (same for file, event and mutant)
 			done := make(chan struct{}, 1)
-			var name string
+			var (
+				nameRoutine string
+				errRoutine  error
+			)
 			go func() {
-				name, err = queryNameInformation(handle, ownprocess, ownpid == handle.UniqueProcessID)
-				if err != nil {
-					log("could not get handle name for handle 0x%X of type %s: %s", handle.HandleValue, handleType, err)
-					name = ""
-				}
+				nameRoutine, errRoutine = queryNameInformation(handle, ownprocess, ownpid == handle.UniqueProcessID)
 				done <- struct{}{}
 			}()
+			var name string
 			select {
 			case <-done:
-			case <-time.After(time.Second * 25):
-				return nil, fmt.Errorf("timeout when querying for handle name of process %d's handle 0x%X (type %s) and granted access 0x%X. Please report this issue to github.com/Codehardt/go-handle", handle.UniqueProcessID, handle.HandleValue, handleType, handle.GrantedAccess)
+				if errRoutine != nil {
+					log("could not get handle name for handle 0x%X of type %s: %s", handle.HandleValue, handleType, errRoutine)
+				} else {
+					name = nameRoutine
+				}
+			case <-time.After(queryTimeout):
+				log("timeout when querying for handle name of process %d's handle 0x%X (type %s) and granted access 0x%X", handle.UniqueProcessID, handle.HandleValue, handleType, handle.GrantedAccess)
 			}
 			basic := basicHandle{p: handle.UniqueProcessID, h: handle.HandleValue, n: name}
 			log("handle found: process: %d handle: 0x%X name: %s", basic.p, basic.h, basic.n)

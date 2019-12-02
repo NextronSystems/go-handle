@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"github.com/Codehardt/go-handle"
 )
@@ -10,7 +11,7 @@ import (
 
 func main() {
 	buf := make([]byte, 6000000) // create 6MB buffer
-	handles, err := handle.QueryHandles(buf, nil, []handle.HandleType{handle.HandleTypeFile})
+	handles, err := handle.QueryHandles(buf, nil, []handle.HandleType{handle.HandleTypeFile}, time.Second*20)
 	if err != nil {
 		log.Fatal(err)
 	}
