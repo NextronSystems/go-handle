@@ -3,14 +3,13 @@
 package handle
 
 import (
-	"encoding/binary"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"reflect"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 	"unicode/utf16"
@@ -338,15 +337,21 @@ func (u unicodeString) String() string {
 	hdr.Data = uintptr(unsafe.Pointer(u.Buffer))
 	hdr.Len = int(u.Length)
 	hdr.Cap = int(u.MaximumLength)
-	utf := make([]uint16, (len(b)+(2-1))/2)
-	for i := 0; i+(2-1) < len(b); i += 2 {
-		utf[i/2] = binary.LittleEndian.Uint16(b[i:])
+	// utf16 to utf8: https://gist.github.com/bradleypeabody/185b1d7ed6c0c2ab6cec
+	if len(b)%2 != 0 {
+		b = b[:len(b)-1]
 	}
-	if len(b)/2 < len(utf) {
-		utf[len(utf)-1] = utf8.RuneError
+	u16s := make([]uint16, 1)
+	ret := &bytes.Buffer{}
+	b8buf := make([]byte, 4)
+	lb := len(b)
+	for i := 0; i < lb; i += 2 {
+		u16s[0] = uint16(b[i]) + (uint16(b[i+1]) << 8)
+		r := utf16.Decode(u16s)
+		n := utf8.EncodeRune(b8buf, r[0])
+		ret.Write(b8buf[:n])
 	}
-	runtime.KeepAlive(u.Buffer)
-	return strings.Trim(string(utf16.Decode(utf)), "\x00")
+	return ret.String(), nil
 }
 
 var writer io.Writer
