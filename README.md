@@ -27,81 +27,79 @@ The function returns a list of handles. You can convert the generic handle to `F
 The following example iterates over all file handles.
 
 ```golang
-package main
-
-import (
-	"log"
-
-	"github.com/Codehardt/go-handle"
-)
-
 func main() {
-	buf := make([]byte, 6000000) // create 6MB buffer
-	handles, err := handle.QueryHandles(buf, nil, []handle.HandleType{handle.HandleTypeFile})
+	// create an example global and local event
+	eventHandle, err := createEvent(`Global\TestHandleEvent`)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
-	for i, h := range handles {
-		if fh, ok := h.(*handle.FileHandle); ok {
-			log.Printf("file handle 0x%04X for process %05d with name '%s'", fh.Handle(), fh.Process(), fh.Name())
-		} else {
-			log.Fatal("no a file handle")
-		}
-		if i > 50 {
-			break
-		}
+	defer windows.CloseHandle(eventHandle)
+	eventHandle2, err := createEvent(`Local\TestHandleEvent2`)
+	if err != nil {
+		panic(err)
+	}
+	defer windows.CloseHandle(eventHandle2)
+	// create an example global and local mutex
+	mutexHandle, err := createMutex(`Global\TestHandleMutex`)
+	if err != nil {
+		panic(err)
+	}
+	defer windows.CloseHandle(mutexHandle)
+	mutexHandle2, err := createMutex(`Local\TestHandleMutex2`)
+	if err != nil {
+		panic(err)
+	}
+	defer windows.CloseHandle(mutexHandle2)
+	// create an example file
+	f, err := os.OpenFile("TestFile", os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0600)
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove("TestFile")
+	defer f.Close()
+	// create 6MB buffer
+	buf := make([]byte, 6000000)
+	pid := uint16(os.Getpid())
+	handles, err := handle.QueryHandles(buf, &pid, []handle.HandleType{
+		handle.HandleTypeMutant,
+		handle.HandleTypeEvent,
+		handle.HandleTypeFile,
+	}, time.Second*20)
+	if err != nil {
+		panic(err)
+	}
+	for _, fh := range handles {
+		fmt.Printf("[pid %d] +0x%03X handle '%s'\n", fh.Process(), fh.Handle(), fh.Name())
 	}
 }
 ```
 
+`Z:\go\src\github.com\Codehardt\go-handle>go run examples/example.go`
 ```
-2019/11/29 15:49:05 file handle 0x0040 for process 03596 with name '\Device\HarddiskVolume2\Windows\System32'
-2019/11/29 15:49:05 file handle 0x0080 for process 03596 with name '\Device\CNG'
-2019/11/29 15:49:05 file handle 0x049C for process 03596 with name '\Device\DeviceApi'
-2019/11/29 15:49:05 file handle 0x05D4 for process 03596 with name '\Device\KsecDD'
-2019/11/29 15:49:05 file handle 0x0608 for process 03596 with name '\Device\HarddiskVolume2\Windows\System32\de-DE\KernelBase.dll.mui'
-2019/11/29 15:49:05 file handle 0x0048 for process 03632 with name '\Device\HarddiskVolume2\Windows\System32'
-2019/11/29 15:49:05 file handle 0x008C for process 03632 with name '\Device\CNG'
-2019/11/29 15:49:05 file handle 0x0140 for process 03632 with name '\Device\HarddiskVolume2\Program Files\WindowsApps\Microsoft.LanguageExperiencePackde-DE_18362.15.56.0_neutral__8wekyb3d8bbwe\Windows\System32\de-DE\svchost.exe.mui'
-2019/11/29 15:49:05 file handle 0x0174 for process 03632 with name '\Device\DeviceApi'
-2019/11/29 15:49:05 file handle 0x022C for process 03632 with name '\Device\KsecDD'
-2019/11/29 15:49:05 file handle 0x0380 for process 03632 with name '\Device\DeviceApi'
-2019/11/29 15:49:05 file handle 0x03CC for process 03632 with name '\Device\Nsi'
-2019/11/29 15:49:05 file handle 0x042C for process 03632 with name '\Device\HarddiskVolume2\Program Files\WindowsApps\Microsoft.LanguageExperiencePackde-DE_18362.15.56.0_neutral__8wekyb3d8bbwe\Windows\System32\de-DE\crypt32.dll.mui'
-2019/11/29 15:49:05 file handle 0x0444 for process 03632 with name '\Device\DeviceApi'
-2019/11/29 15:49:05 file handle 0x0458 for process 03632 with name '\Device\KsecDD'
-2019/11/29 15:49:05 file handle 0x0460 for process 03632 with name '\Device\HarddiskVolume2\Users\Marcel\AppData\Local\ConnectedDevicesPlatform\L.Marcel\ActivitiesCache.db'
-2019/11/29 15:49:05 file handle 0x0468 for process 03632 with name '\Device\HarddiskVolume2\Users\Marcel\AppData\Local\ConnectedDevicesPlatform\L.Marcel\ActivitiesCache.db-wal'
-2019/11/29 15:49:05 file handle 0x046C for process 03632 with name '\Device\HarddiskVolume2\Users\Marcel\AppData\Local\ConnectedDevicesPlatform\L.Marcel\ActivitiesCache.db-shm'
-2019/11/29 15:49:05 file handle 0x0048 for process 03664 with name '\Device\HarddiskVolume2\Windows\System32'
-2019/11/29 15:49:05 file handle 0x008C for process 03664 with name '\Device\CNG'
-2019/11/29 15:49:05 file handle 0x0130 for process 03664 with name '\Device\HarddiskVolume2\Program Files\WindowsApps\Microsoft.LanguageExperiencePackde-DE_18362.15.56.0_neutral__8wekyb3d8bbwe\Windows\System32\de-DE\svchost.exe.mui'
-2019/11/29 15:49:05 file handle 0x0204 for process 03664 with name '\Device\HarddiskVolume2\Users\Marcel\AppData\Local\Microsoft\Windows\Notifications\wpndatabase.db'
-2019/11/29 15:49:05 file handle 0x0268 for process 03664 with name '\Device\KsecDD'
-2019/11/29 15:49:05 file handle 0x027C for process 03664 with name '\Device\DeviceApi'
-2019/11/29 15:49:05 file handle 0x02E8 for process 03664 with name '\Device\HarddiskVolume2\Windows\System32\de-DE\KernelBase.dll.mui'
-2019/11/29 15:49:05 file handle 0x0330 for process 03664 with name '\Device\HarddiskVolume2\Users\Marcel\AppData\Local\Microsoft\Windows\Notifications\wpndatabase.db-wal'
-2019/11/29 15:49:05 file handle 0x0334 for process 03664 with name '\Device\HarddiskVolume2\Users\Marcel\AppData\Local\Microsoft\Windows\Notifications\wpndatabase.db-shm'
-2019/11/29 15:49:05 file handle 0x03CC for process 03664 with name '\Device\KsecDD'
-2019/11/29 15:49:05 file handle 0x04E0 for process 03664 with name '\Device\Nsi'
-2019/11/29 15:49:05 file handle 0x04F8 for process 03664 with name '\Device\HarddiskVolume2\Program Files\WindowsApps\Microsoft.LanguageExperiencePackde-DE_18362.15.56.0_neutral__8wekyb3d8bbwe\Windows\System32\de-DE\QuietHours.dll.mui'
-2019/11/29 15:49:05 file handle 0x062C for process 03664 with name '\Device\HarddiskVolume2\Program Files\WindowsApps\Microsoft.LanguageExperiencePackde-DE_18362.15.56.0_neutral__8wekyb3d8bbwe\Windows\System32\de-DE\netmsg.dll.mui'
-2019/11/29 15:49:05 file handle 0x06FC for process 03664 with name '\Device\HarddiskVolume2\Program Files\WindowsApps\Microsoft.LanguageExperiencePackde-DE_18362.15.56.0_neutral__8wekyb3d8bbwe\Windows\System32\de-DE\winnlsres.dll.mui'
-2019/11/29 15:49:05 file handle 0x0784 for process 03664 with name '\Device\HarddiskVolume2\Program Files\WindowsApps\Microsoft.LanguageExperiencePackde-DE_18362.15.56.0_neutral__8wekyb3d8bbwe\Windows\System32\de-DE\NotificationController.dll.mui'
-2019/11/29 15:49:05 file handle 0x0790 for process 03664 with name '\Device\HarddiskVolume2\Program Files\WindowsApps\Microsoft.LanguageExperiencePackde-DE_18362.15.56.0_neutral__8wekyb3d8bbwe\Windows\System32\de-DE\mswsock.dll.mui'
-2019/11/29 15:49:05 file handle 0x0040 for process 03744 with name '\Device\HarddiskVolume2\Windows\System32'
-2019/11/29 15:49:05 file handle 0x007C for process 03744 with name '\Device\CNG'
-2019/11/29 15:49:05 file handle 0x0114 for process 03744 with name '\Device\HarddiskVolume2\Program Files\WindowsApps\Microsoft.LanguageExperiencePackde-DE_18362.15.56.0_neutral__8wekyb3d8bbwe\Windows\System32\de-DE\taskhostw.exe.mui'
-2019/11/29 15:49:05 file handle 0x0150 for process 03744 with name '\Device\KsecDD'
-2019/11/29 15:49:05 file handle 0x01E8 for process 03744 with name '\Device\HarddiskVolume2\Windows\System32\de-DE\ESENT.dll.mui'
-2019/11/29 15:49:05 file handle 0x01F8 for process 03744 with name '\Device\HarddiskVolume2\Windows\System32\en-US\MsCtfMonitor.dll.mui'
-2019/11/29 15:49:05 file handle 0x0298 for process 03744 with name '\Device\Beep'
-2019/11/29 15:49:05 file handle 0x02B8 for process 03744 with name '\Device\DeviceApi'
-2019/11/29 15:49:05 file handle 0x02CC for process 03744 with name '\Device\KsecDD'
-2019/11/29 15:49:05 file handle 0x02D0 for process 03744 with name '\Device\Harddisk0\DR0'
-2019/11/29 15:49:05 file handle 0x0324 for process 03744 with name '\Device\HarddiskVolume2\Users\Marcel\AppData\Local\Microsoft\Windows\WebCacheLock.dat'
-2019/11/29 15:49:05 file handle 0x033C for process 03744 with name '\Device\HarddiskVolume2\Users\Marcel\AppData\Local\Microsoft\Windows\WebCache\V01.log'
-2019/11/29 15:49:05 file handle 0x0354 for process 03744 with name '\Device\HarddiskVolume2\Users\Marcel\AppData\Local\Microsoft\Windows\WebCache\WebCacheV01.jfm'
-2019/11/29 15:49:05 file handle 0x03B0 for process 03744 with name '\Device\HarddiskVolume2\Program Files\WindowsApps\Microsoft.LanguageExperiencePackde-DE_18362.15.56.0_neutral__8wekyb3d8bbwe\Windows\System32\de-DE\winmm.dll.mui'
-2019/11/29 15:49:05 file handle 0x03D0 for process 03744 with name '\Device\HarddiskVolume2\Users\Marcel\AppData\Local\Microsoft\Windows\WebCache\WebCacheV01.dat'
+[pid 7360] +0x004 handle '\Device\ConDrv'
+[pid 7360] +0x008 handle ''
+[pid 7360] +0x00C handle ''
+[pid 7360] +0x03C handle ''
+[pid 7360] +0x040 handle ''
+[pid 7360] +0x044 handle '\Device\Mup\VBoxSvr\win10\go\src\github.com\Codehardt\go-handle'
+[pid 7360] +0x048 handle '\Device\ConDrv'
+[pid 7360] +0x0A8 handle '\Device\KsecDD'
+[pid 7360] +0x0AC handle '\Device\CNG'
+[pid 7360] +0x0B8 handle '\Device\DeviceApi'
+[pid 7360] +0x0C4 handle ''
+[pid 7360] +0x0D0 handle ''
+[pid 7360] +0x0E4 handle ''
+[pid 7360] +0x0E8 handle ''
+[pid 7360] +0x0F0 handle ''
+[pid 7360] +0x0FC handle ''
+[pid 7360] +0x104 handle ''
+[pid 7360] +0x110 handle '\BaseNamedObjects\TestHandleEvent'
+[pid 7360] +0x114 handle '\Sessions\1\BaseNamedObjects\TestHandleEvent2'
+[pid 7360] +0x118 handle '\BaseNamedObjects\TestHandleMutex'
+[pid 7360] +0x11C handle '\Sessions\1\BaseNamedObjects\TestHandleMutex2'
+[pid 7360] +0x120 handle '\Device\Mup\VBoxSvr\win10\go\src\github.com\Codehardt\go-handle\TestFile'
+[pid 7360] +0x124 handle ''
+[pid 7360] +0x178 handle '\Device\ConDrv'
+[pid 7360] +0x18C handle '\Device\ConDrv'
+[pid 7360] +0x190 handle '\Device\ConDrv'
 ```

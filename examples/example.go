@@ -1,28 +1,80 @@
 package main
 
 import (
-	"log"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/Codehardt/go-handle"
+	"golang.org/x/sys/windows"
 )
 
-//func init() { handle.DebugWriter(os.Stdout) }
+func createEvent(name string) (windows.Handle, error) {
+	u16, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return 0, err
+	}
+	h, err := windows.CreateEvent(nil, 0, 0, u16)
+	if err != nil {
+		return 0, err
+	}
+	return h, nil
+}
+
+func createMutex(name string) (windows.Handle, error) {
+	u16, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return 0, err
+	}
+	h, err := windows.CreateMutex(nil, false, u16)
+	if err != nil {
+		return 0, err
+	}
+	return h, nil
+}
 
 func main() {
-	buf := make([]byte, 6000000) // create 6MB buffer
-	handles, err := handle.QueryHandles(buf, nil, []handle.HandleType{handle.HandleTypeFile}, time.Second*20)
+	// create an example global and local event
+	eventHandle, err := createEvent(`Global\TestHandleEvent`)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
-	for i, h := range handles {
-		if fh, ok := h.(*handle.FileHandle); ok {
-			log.Printf("file handle 0x%04X for process %05d with name '%s'", fh.Handle(), fh.Process(), fh.Name())
-		} else {
-			log.Fatal("no a file handle")
-		}
-		if i > 50 {
-			break
-		}
+	defer windows.CloseHandle(eventHandle)
+	eventHandle2, err := createEvent(`Local\TestHandleEvent2`)
+	if err != nil {
+		panic(err)
+	}
+	defer windows.CloseHandle(eventHandle2)
+	// create an example global and local mutex
+	mutexHandle, err := createMutex(`Global\TestHandleMutex`)
+	if err != nil {
+		panic(err)
+	}
+	defer windows.CloseHandle(mutexHandle)
+	mutexHandle2, err := createMutex(`Local\TestHandleMutex2`)
+	if err != nil {
+		panic(err)
+	}
+	defer windows.CloseHandle(mutexHandle2)
+	// create an example file
+	f, err := os.OpenFile("TestFile", os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0600)
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove("TestFile")
+	defer f.Close()
+	// create 6MB buffer
+	buf := make([]byte, 6000000)
+	pid := uint16(os.Getpid())
+	handles, err := handle.QueryHandles(buf, &pid, []handle.HandleType{
+		handle.HandleTypeMutant,
+		handle.HandleTypeEvent,
+		handle.HandleTypeFile,
+	}, time.Second*20)
+	if err != nil {
+		panic(err)
+	}
+	for _, fh := range handles {
+		fmt.Printf("[pid %d] +0x%03X handle '%s'\n", fh.Process(), fh.Handle(), fh.Name())
 	}
 }
