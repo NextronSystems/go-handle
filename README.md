@@ -20,11 +20,12 @@ Then call the function `handle.QueryHandles(...)`. This function takes the follo
  - `buf`: A buffer that can hold all process handles
  - `processFilter` _(optional)_: Only show process handles of process with this id
  - `handleTypes` _(optional)_: Only return handles of the specified types _(see above for all available handle types)_
+ - `queryTimeout`: Some handles can not be queried and cause a freeze. This timeout will be used to prevent freezes
 
 The function returns a list of handles. You can convert the generic handle to `FileHandle`, `EventHandle`, `...` or just use the generic functions `.Process()`, `.Handle()` and `.Name()`. 
 
 ## Example
-The following example iterates over all file handles.
+The following example iterates over all handles of this process.
 
 ```golang
 func main() {
