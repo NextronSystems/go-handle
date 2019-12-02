@@ -351,7 +351,7 @@ func (u unicodeString) String() string {
 		n := utf8.EncodeRune(b8buf, r[0])
 		ret.Write(b8buf[:n])
 	}
-	return ret.String(), nil
+	return ret.String()
 }
 
 var writer io.Writer
