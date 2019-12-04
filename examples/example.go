@@ -66,15 +66,11 @@ func main() {
 	// create 6MB buffer
 	buf := make([]byte, 6000000)
 	pid := uint16(os.Getpid())
-	handles, err := handle.QueryHandles(buf, &pid, []handle.HandleType{
-		handle.HandleTypeMutant,
-		handle.HandleTypeEvent,
-		handle.HandleTypeFile,
-	}, time.Second*20)
+	handles, err := handle.QueryHandles(buf, &pid, []string{"File", "Event", "Mutant"}, time.Second*20)
 	if err != nil {
 		panic(err)
 	}
 	for _, fh := range handles {
-		fmt.Printf("[pid %d] +0x%03X handle '%s'\n", fh.Process(), fh.Handle(), fh.Name())
+		fmt.Printf("PID %05d | %8.8s | HANDLE %04X | '%s'\n", fh.Process, fh.Type, fh.Handle, fh.Name)
 	}
 }

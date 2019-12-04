@@ -19,16 +19,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const NtStatusInfoLengthMismatch = 0xC0000004
-
-type HandleType string
-
-const (
-	HandleTypeFile   HandleType = "File"
-	HandleTypeEvent  HandleType = "Event"
-	HandleTypeMutant HandleType = "Mutant"
-)
-
 var (
 	modntdll                     = syscall.NewLazyDLL("ntdll.dll")
 	procNtQuerySystemInformation = modntdll.NewProc("NtQuerySystemInformation")
@@ -66,38 +56,17 @@ type objectNameInformation struct {
 }
 
 func NtSuccess(rt uint32) bool {
-	return rt < 0x8000000 && rt != NtStatusInfoLengthMismatch
+	return rt < 0x8000000
 }
 
-type Handle interface {
-	Process() uint16
-	Handle() uint16
-	Name() string
+type Handle struct {
+	Process uint16
+	Handle  uint16
+	Name    string
+	Type    string
 }
 
-type basicHandle struct {
-	p uint16
-	h uint16
-	n string
-}
-
-func (b basicHandle) Process() uint16 { return b.p }
-func (b basicHandle) Handle() uint16  { return b.h }
-func (b basicHandle) Name() string    { return b.n }
-
-type FileHandle struct {
-	basicHandle
-}
-
-type EventHandle struct {
-	basicHandle
-}
-
-type MutantHandle struct {
-	basicHandle
-}
-
-func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType, queryTimeout time.Duration) (handles []Handle, err error) {
+func QueryHandles(buf []byte, processFilter *uint16, handleTypes []string, queryTimeout time.Duration) (handles []Handle, err error) {
 	// reset buffer, querying system information seem to require a 0-valued buffer.
 	// Without this reset, the below sysinfo.Count might be wrong.
 	for i := 0; i < len(buf); i++ {
@@ -119,17 +88,13 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType, q
 	sh.Len = int(sysinfo.Count)
 	sh.Cap = int(sysinfo.Count)
 	var (
-		typeMapping    = make(map[uint8]HandleType) // what objecttypeindex equals which handletype
+		typeMapping    = make(map[uint8]string) // what objecttypeindex equals which handletype
 		typeMappingErr = make(map[uint8]int)
-		typeFilter     = make(map[HandleType]struct{})
+		typeFilter     map[string]struct{}
 		processErrs    = make(map[uint16]struct{})
 	)
-	if len(handleTypes) == 0 {
-		// use all handle types if no handle type filter is set
-		typeFilter[HandleTypeFile] = struct{}{}
-		typeFilter[HandleTypeEvent] = struct{}{}
-		typeFilter[HandleTypeMutant] = struct{}{}
-	} else {
+	if len(handleTypes) > 0 {
+		typeFilter = make(map[string]struct{})
 		for _, handleType := range handleTypes {
 			typeFilter[handleType] = struct{}{}
 		}
@@ -150,7 +115,7 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType, q
 			log("handle type %d of handle 0x%X is unknown, querying for type ...", handle.UniqueProcessID, handle.HandleValue)
 			done := make(chan struct{}, 1)
 			var (
-				handleTypeRoutine HandleType
+				handleTypeRoutine string
 				errRoutine        error
 			)
 			go func() {
@@ -182,14 +147,15 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType, q
 			}
 		}
 		handleType := typeMapping[handle.ObjectTypeIndex]
-		if _, ok := typeFilter[handleType]; !ok {
-			// handle type not in filter list, skip
-			log("skipping handle type %q due to handle filters", handleType)
-			continue
+		if typeFilter != nil {
+			if _, ok := typeFilter[handleType]; !ok {
+				// handle type not in filter list, skip
+				log("skipping handle type %q due to handle filters", handleType)
+				continue
+			}
 		}
 		switch handleType {
-		case HandleTypeFile, HandleTypeEvent, HandleTypeMutant:
-			// get name of handle (same for file, event and mutant)
+		default:
 			done := make(chan struct{}, 1)
 			var (
 				nameRoutine string
@@ -210,17 +176,10 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []HandleType, q
 			case <-time.After(queryTimeout):
 				log("timeout when querying for handle name of process %d's handle 0x%X (type %s) and granted access 0x%X", handle.UniqueProcessID, handle.HandleValue, handleType, handle.GrantedAccess)
 			}
-			basic := basicHandle{p: handle.UniqueProcessID, h: handle.HandleValue, n: name}
-			log("handle found: process: %d handle: 0x%X name: %s", basic.p, basic.h, basic.n)
+			handle := Handle{Process: handle.UniqueProcessID, Handle: handle.HandleValue, Name: name, Type: handleType}
+			log("handle found: process: %d handle: 0x%X name: %10.10s type: %s", handle.Process, handle.Handle, handle.Name, handle.Type)
 			// add handle to result set
-			switch handleType {
-			case HandleTypeFile:
-				handles = append(handles, &FileHandle{basic})
-			case HandleTypeEvent:
-				handles = append(handles, &EventHandle{basic})
-			case HandleTypeMutant:
-				handles = append(handles, &MutantHandle{basic})
-			}
+			handles = append(handles, handle)
 		}
 	}
 	runtime.KeepAlive(buf)
@@ -243,7 +202,7 @@ func querySystemInformation(buf []byte) error {
 var nameAndTypeBuffer = make([]byte, 4096)
 var errOpenProcess = errors.New("could not open process")
 
-func queryTypeInformation(handle systemHandle, ownprocess windows.Handle, ownpid bool) (HandleType, error) {
+func queryTypeInformation(handle systemHandle, ownprocess windows.Handle, ownpid bool) (string, error) {
 	// duplicate handle if it's not from our own process
 	var h windows.Handle
 	if !ownpid {
@@ -282,7 +241,7 @@ func queryTypeInformation(handle systemHandle, ownprocess windows.Handle, ownpid
 	if !NtSuccess(uint32(ret)) {
 		return "", fmt.Errorf("NTStatus(0x%X)", ret)
 	}
-	name := HandleType((*objectTypeInformation)(unsafe.Pointer(&nameAndTypeBuffer[0])).TypeName.String())
+	name := (*objectTypeInformation)(unsafe.Pointer(&nameAndTypeBuffer[0])).TypeName.String()
 	runtime.KeepAlive(nameAndTypeBuffer)
 	return name, nil
 }
@@ -337,6 +296,10 @@ func (u unicodeString) String() string {
 	hdr.Data = uintptr(unsafe.Pointer(u.Buffer))
 	hdr.Len = int(u.Length)
 	hdr.Cap = int(u.MaximumLength)
+	return utf16toutf8(b)
+}
+
+func utf16toutf8(b []byte) string {
 	// utf16 to utf8: https://gist.github.com/bradleypeabody/185b1d7ed6c0c2ab6cec
 	if len(b)%2 != 0 {
 		b = b[:len(b)-1]
