@@ -101,11 +101,13 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []string, query
 	log("sysinfo count: %d", sysinfo.Count)
 	for i := uint3264(0); i < sysinfo.Count; i++ {
 		handle := sysinfo.SystemHandle[i]
+		log("handle: %#v", handle)
 		// some handles cause freeze, skip them
 		if (handle.GrantedAccess == 0x0012019f) ||
 			(handle.GrantedAccess == 0x001a019f) ||
 			(handle.GrantedAccess == 0x00120189) ||
 			(handle.GrantedAccess == 0x00100000) {
+			log("skipping handle due to granted access")
 			continue
 		}
 		if processFilter != nil && *processFilter != handle.UniqueProcessID {
@@ -152,6 +154,7 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []string, query
 			}
 		}
 		handleType := typeMapping[handle.ObjectTypeIndex]
+		log("handle type: %s", handleType)
 		if typeFilter != nil {
 			if _, ok := typeFilter[handleType]; !ok {
 				// handle type not in filter list, skip
@@ -204,7 +207,6 @@ func querySystemInformation(buf []byte) error {
 	return nil
 }
 
-var nameAndTypeBuffer = make([]byte, 4096)
 var errOpenProcess = errors.New("could not open process")
 
 func queryTypeInformation(handle systemHandle, ownprocess windows.Handle, ownpid bool) (string, error) {
@@ -237,17 +239,18 @@ func queryTypeInformation(handle systemHandle, ownprocess windows.Handle, ownpid
 	} else {
 		h = windows.Handle(handle.HandleValue)
 	}
+	buf := make([]byte, 0x1000)
 	ret, _, _ := procNtQueryObject.Call(
 		uintptr(h), 2,
-		uintptr(unsafe.Pointer(&nameAndTypeBuffer[0])),
-		uintptr(len(nameAndTypeBuffer)),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(0x1000),
 		0,
 	)
 	if !NtSuccess(uint32(ret)) {
 		return "", fmt.Errorf("NTStatus(0x%X)", ret)
 	}
-	name := (*objectTypeInformation)(unsafe.Pointer(&nameAndTypeBuffer[0])).TypeName.String()
-	runtime.KeepAlive(nameAndTypeBuffer)
+	name := (*objectTypeInformation)(unsafe.Pointer(&buf[0])).TypeName.String()
+	runtime.KeepAlive(buf)
 	return name, nil
 }
 
@@ -280,18 +283,19 @@ func queryNameInformation(handle systemHandle, ownprocess windows.Handle, ownpid
 		h = windows.Handle(handle.HandleValue)
 	}
 	log("query (access 0x%X)", handle.GrantedAccess)
+	buf := make([]byte, 0x1000)
 	ret, _, _ := procNtQueryObject.Call(
 		uintptr(h),
 		1,
-		uintptr(unsafe.Pointer(&nameAndTypeBuffer[0])),
-		uintptr(len(nameAndTypeBuffer)),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(0x1000),
 		0,
 	)
 	if !NtSuccess(uint32(ret)) {
 		return "", fmt.Errorf("NTStatus(0x%X)", ret)
 	}
-	name := (*objectNameInformation)(unsafe.Pointer(&nameAndTypeBuffer[0])).Name.String()
-	runtime.KeepAlive(nameAndTypeBuffer)
+	name := (*objectNameInformation)(unsafe.Pointer(&buf[0])).Name.String()
+	runtime.KeepAlive(buf)
 	return name, nil
 }
 
