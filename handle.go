@@ -3,7 +3,6 @@
 package handle
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -13,7 +12,6 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf16"
-	"unicode/utf8"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -103,6 +101,13 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []string, query
 	log("sysinfo count: %d", sysinfo.Count)
 	for i := uint3264(0); i < sysinfo.Count; i++ {
 		handle := sysinfo.SystemHandle[i]
+		// some handles cause freeze, skip them
+		if (handle.GrantedAccess == 0x0012019f) ||
+			(handle.GrantedAccess == 0x001a019f) ||
+			(handle.GrantedAccess == 0x00120189) ||
+			(handle.GrantedAccess == 0x00100000) {
+			continue
+		}
 		if processFilter != nil && *processFilter != handle.UniqueProcessID {
 			log("skipping handle of process %d due to process filter %d", handle.UniqueProcessID, processFilter)
 			continue
@@ -291,30 +296,13 @@ func queryNameInformation(handle systemHandle, ownprocess windows.Handle, ownpid
 }
 
 func (u unicodeString) String() string {
-	var b []byte
-	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&b))
+	var s []uint16
+	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&s))
 	hdr.Data = uintptr(unsafe.Pointer(u.Buffer))
-	hdr.Len = int(u.Length)
-	hdr.Cap = int(u.MaximumLength)
-	return utf16toutf8(b)
-}
-
-func utf16toutf8(b []byte) string {
-	// utf16 to utf8: https://gist.github.com/bradleypeabody/185b1d7ed6c0c2ab6cec
-	if len(b)%2 != 0 {
-		b = b[:len(b)-1]
-	}
-	u16s := make([]uint16, 1)
-	ret := &bytes.Buffer{}
-	b8buf := make([]byte, 4)
-	lb := len(b)
-	for i := 0; i < lb; i += 2 {
-		u16s[0] = uint16(b[i]) + (uint16(b[i+1]) << 8)
-		r := utf16.Decode(u16s)
-		n := utf8.EncodeRune(b8buf, r[0])
-		ret.Write(b8buf[:n])
-	}
-	return ret.String()
+	hdr.Len = int(u.Length / 2)
+	hdr.Cap = int(u.MaximumLength / 2)
+	log("converting unicode string with length %d and capacity %d", u.Length, u.MaximumLength)
+	return string(utf16.Decode(s))
 }
 
 var writer io.Writer
