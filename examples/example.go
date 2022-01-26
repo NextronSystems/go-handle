@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Codehardt/go-handle"
+	"github.com/NextronSystems/go-handle"
 	"golang.org/x/sys/windows"
 )
 
