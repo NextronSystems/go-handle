@@ -58,7 +58,6 @@ func (t nativeThread) Terminate() error {
 		return err
 	}
 	windows.CloseHandle(t.handle)
-	t.handle = 0
 	return nil
 }
 

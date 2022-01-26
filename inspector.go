@@ -176,6 +176,7 @@ func (i *Inspector) ntQueryObject(h windows.Handle, informationClass int) (handl
 		}
 	case <-time.After(i.timeout):
 		i.ntQueryThread.Terminate()
+		i.ntQueryThread = nativeThread{}
 		return "", ErrTimeout
 	}
 }
