@@ -42,6 +42,9 @@ func NewInspector(timeout time.Duration) *Inspector {
 
 // Close the Inspector object, removing any cached data and stopping the native thread
 func (i *Inspector) Close() {
+	if !i.ntQueryThread.IsZero() {
+		i.ntQueryThread.Terminate()
+	}
 	C.free(unsafe.Pointer(i.nativeExchange.buffer))
 	windows.CloseHandle(windows.Handle(i.nativeExchange.ini))
 	windows.CloseHandle(windows.Handle(i.nativeExchange.done))
