@@ -37,10 +37,10 @@ func (t nativeThread) Terminate() error {
 		uintptr(t.handle),
 		0,
 	)
+	windows.CloseHandle(t.handle)
 	if r1 == 0 {
 		return err
 	}
-	windows.CloseHandle(t.handle)
 	return nil
 }
 
