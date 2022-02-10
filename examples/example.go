@@ -66,7 +66,7 @@ func main() {
 	// create 6MB buffer
 	buf := make([]byte, 6000000)
 	pid := uint16(os.Getpid())
-	handles, err := handle.QueryHandles(buf, &pid, []string{"File", "Event", "Mutant"}, time.Second*20)
+	handles, err := handle.QueryHandles(buf, &pid, nil, time.Millisecond*500)
 	if err != nil {
 		panic(err)
 	}
