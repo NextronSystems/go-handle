@@ -4,16 +4,19 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
+// #include "queryobject.h"
+import "C"
+
 // Inspector describes a structure that queries details (name and type name) to a specific handle.
 // Common elements such as type ID to name mappings and process handles are cached and reused.
 type Inspector struct {
-	queryId        int // unique identifier for this object, used to identify object to native thread
+	nativeExchange *C.exchange_t
 	typeMapping    map[uint8]string
 	processHandles map[uint16]windows.Handle
 	timeout        time.Duration
@@ -21,41 +24,28 @@ type Inspector struct {
 }
 
 func NewInspector(timeout time.Duration) *Inspector {
-	queryMapMutex.Lock()
-	defer queryMapMutex.Unlock()
 	query := &Inspector{
-		queryId:        nextQueryId,
 		typeMapping:    map[uint8]string{},
 		processHandles: map[uint16]windows.Handle{},
 		timeout:        timeout,
+		nativeExchange: (*C.exchange_t)(C.malloc(C.size_t(unsafe.Sizeof(C.exchange_t{})))),
 	}
-	nextQueryId++
-	queryMap[query.queryId] = ioChannel{
-		input:  make(chan ntObjectQuery),
-		output: make(chan interface{}),
-	}
+	query.nativeExchange.bufferLength = 1000
+	query.nativeExchange.buffer = (*C.byte)(C.malloc(C.size_t(query.nativeExchange.bufferLength)))
+	ini, _ := windows.CreateEvent(nil, 0, 0, nil)
+	query.nativeExchange.ini = C.HANDLE(ini)
+	done, _ := windows.CreateEvent(nil, 0, 0, nil)
+	query.nativeExchange.done = C.HANDLE(done)
+
 	return query
 }
 
-// ioChannel describes a pair of channels that is used to communicate with the native thread that calls NtQueryObject.
-// The input channel receives each parameter pair for NtQueryObject and the native thread responds with the name or
-// type name, if successful, or and error value if not successful.
-type ioChannel struct {
-	input  chan ntObjectQuery
-	output chan interface{}
-}
-
-// maps the unique ID of each Inspector object to its native thread communication channels.
-var queryMap = map[int]ioChannel{}
-var queryMapMutex sync.Mutex
-var nextQueryId int
-
 // Close the Inspector object, removing any cached data and stopping the native thread
 func (i *Inspector) Close() {
-	queryMapMutex.Lock()
-	defer queryMapMutex.Unlock()
-	close(queryMap[i.queryId].input) // Implicitly causes the native thread to exit if it is running
-	delete(queryMap, i.queryId)
+	C.free(unsafe.Pointer(i.nativeExchange.buffer))
+	windows.CloseHandle(windows.Handle(i.nativeExchange.ini))
+	windows.CloseHandle(windows.Handle(i.nativeExchange.done))
+	C.free(unsafe.Pointer(i.nativeExchange))
 	for _, handle := range i.processHandles {
 		if handle != 0 {
 			windows.CloseHandle(handle)
@@ -147,66 +137,3 @@ type ntObjectQuery struct {
 }
 
 var ErrTimeout = errors.New("NtQueryObject deadlocked")
-
-// ntQueryObject wraps NtQueryObject and supports a timeout logic.
-// Because NtQueryObject can deadlock on specific handles, we do
-// not want to call it directly. We also can't call it in a separate
-// go routine because then that go routine might be permanently blocked.
-//
-// Instead, we use a native ntQueryThread that starts queryObjects and
-// communicate with it via a pair of pipes. If the response pipe times
-// out, we assume a deadlock and kill the native ntQueryThread.
-func (i *Inspector) ntQueryObject(h windows.Handle, informationClass int) (handleType string, err error) {
-	if i.ntQueryThread.IsZero() {
-		i.ntQueryThread, err = createNativeThread(queryObjectsCallback, uintptr(i.queryId))
-		if err != nil {
-			return "", err
-		}
-	}
-	queryMap[i.queryId].input <- ntObjectQuery{
-		informationClass: informationClass,
-		handle:           h,
-	}
-	select {
-	case result := <-queryMap[i.queryId].output:
-		if err, isErr := result.(error); isErr {
-			return "", err
-		} else {
-			return result.(string), nil
-		}
-	case <-time.After(i.timeout):
-		i.ntQueryThread.Terminate()
-		i.ntQueryThread = nativeThread{}
-		return "", ErrTimeout
-	}
-}
-
-var queryObjectsCallback = windows.NewCallback(queryObjects)
-
-// queryObjects runs a loop where it receives handles on an input channel
-// and sends the results on an output channel. The channel pair is identified
-// by the passed ID. This is meant to be run in a native ntQueryThread to be able to
-// catch NtQueryObject deadlocks.
-func queryObjects(id uintptr) uintptr {
-	queryMapMutex.Lock()
-	channels := queryMap[int(id)]
-	queryMapMutex.Unlock()
-	for query := range channels.input {
-		var (
-			result string
-			err    error
-		)
-		switch query.informationClass {
-		case nameInformationClass:
-			result, err = ntQueryObjectName(query.handle)
-		case typeInformationClass:
-			result, err = ntQueryObjectType(query.handle)
-		}
-		if err != nil {
-			channels.output <- err
-		} else {
-			channels.output <- result
-		}
-	}
-	return 0
-}
