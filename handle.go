@@ -38,6 +38,19 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []string, query
 			log("skipping handle of process %d due to process filter %d", handle.UniqueProcessID, processFilter)
 			continue
 		}
+		// some handles can cause a permanent wait within NtQueryObject.
+		// While we handle those freezes (by killing the thread after a known timeout),
+		// doing so causes memory to leak - this is apparently inherent to TerminateThread.
+		// Therefore, we try to avoid blocking handles in general by blacklisting access masks
+		// that might indicate this issue.
+		if (handle.GrantedAccess == 0x0012019f) ||
+			(handle.GrantedAccess == 0x001a019f) ||
+			(handle.GrantedAccess == 0x00120189) ||
+			(handle.GrantedAccess == 0x00100000) {
+			log("skipping handle due to granted access")
+			continue
+		}
+
 		handleType, err := inspector.LookupHandleType(handle)
 		if err != nil {
 			log("could not query handle type for handle %d in process %d with access mask %d, error: %v", handle.HandleValue, handle.UniqueProcessID, handle.GrantedAccess, err)
