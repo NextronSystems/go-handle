@@ -1,6 +1,7 @@
 package handle
 
 import (
+	"fmt"
 	"reflect"
 	"unsafe"
 
@@ -22,6 +23,14 @@ type systemHandleInformation struct {
 	// ... followed by the specified number of handles
 }
 
+type InsufficientBufferError struct {
+	RequiredBufferSize uint32
+}
+
+func (i InsufficientBufferError) Error() string {
+	return fmt.Sprintf("a buffer of at least %d bytes is required", i.RequiredBufferSize)
+}
+
 func NtQuerySystemHandles(buf []byte) ([]SystemHandle, error) {
 	// reset buffer, querying system information seem to require a 0-valued buffer.
 	// Without this reset, the below sysinfo.Count might be wrong.
@@ -29,12 +38,16 @@ func NtQuerySystemHandles(buf []byte) ([]SystemHandle, error) {
 		buf[i] = 0
 	}
 	// load all handle information to buffer and convert it to systemHandleInformation
+	var requiredBuffer uint32
 	if err := windows.NtQuerySystemInformation(
 		16,
 		unsafe.Pointer(&buf[0]),
 		uint32(len(buf)),
-		nil,
+		&requiredBuffer,
 	); err != nil {
+		if err == windows.STATUS_INFO_LENGTH_MISMATCH {
+			return nil, InsufficientBufferError{requiredBuffer}
+		}
 		return nil, err
 	}
 	sysinfo := (*systemHandleInformation)(unsafe.Pointer(&buf[0]))
