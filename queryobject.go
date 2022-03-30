@@ -3,6 +3,7 @@ package handle
 // #include "queryobject.h"
 import "C"
 import (
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -51,7 +52,7 @@ func (i *Inspector) ntQueryObject(h windows.Handle, informationClass int) (strin
 		return "", err
 	}
 
-	if s, err := windows.WaitForSingleObject(windows.Handle(i.nativeExchange.done), uint32(i.timeout.Milliseconds())); s == uint32(windows.WAIT_TIMEOUT) || err != nil {
+	if s, err := windows.WaitForSingleObject(windows.Handle(i.nativeExchange.done), uint32(i.timeout/time.Millisecond)); s == uint32(windows.WAIT_TIMEOUT) || err != nil {
 		i.ntQueryThread.Terminate()
 		i.ntQueryThread = nativeThread{}
 		return "", ErrTimeout
