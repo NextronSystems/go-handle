@@ -45,7 +45,7 @@ func (i *Inspector) ntQueryObject(h windows.Handle, informationClass int) (strin
 			return "", err
 		}
 	}
-	i.nativeExchange.handle = C.HANDLE(h)
+	i.nativeExchange.handle = C.uintptr_t(h)
 	i.nativeExchange.informationClass = C.int(informationClass)
 
 	if err := windows.SetEvent(windows.Handle(i.nativeExchange.ini)); err != nil {

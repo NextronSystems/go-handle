@@ -9,11 +9,11 @@ int queryObjects(exchange_t* exchange) {
     NtQueryObjectType ntQueryObject = (NtQueryObjectType) GetProcAddress(ntdll, "NtQueryObject");
 
     while(1) {
-        if (WaitForSingleObject(exchange->ini, INFINITE) != WAIT_OBJECT_0) {
+        if (WaitForSingleObject((HANDLE) exchange->ini, INFINITE) != WAIT_OBJECT_0) {
             return 1;
         }
-        exchange->result = ntQueryObject(exchange->handle, exchange->informationClass, exchange->buffer, exchange->bufferLength, 0);
-        SetEvent(exchange->done);
+        exchange->result = ntQueryObject((HANDLE) exchange->handle, exchange->informationClass, exchange->buffer, exchange->bufferLength, 0);
+        SetEvent((HANDLE) exchange->done);
     }
     return 0;
 }

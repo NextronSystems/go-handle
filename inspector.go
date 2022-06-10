@@ -33,9 +33,9 @@ func NewInspector(timeout time.Duration) *Inspector {
 	query.nativeExchange.bufferLength = 1000
 	query.nativeExchange.buffer = (*C.byte)(C.malloc(C.size_t(query.nativeExchange.bufferLength)))
 	ini, _ := windows.CreateEvent(nil, 0, 0, nil)
-	query.nativeExchange.ini = C.HANDLE(ini)
+	query.nativeExchange.ini = C.uintptr_t(ini)
 	done, _ := windows.CreateEvent(nil, 0, 0, nil)
-	query.nativeExchange.done = C.HANDLE(done)
+	query.nativeExchange.done = C.uintptr_t(done)
 
 	return query
 }

@@ -1,13 +1,14 @@
 #include <windows.h>
+#include <stdint.h>
 
 typedef struct {
     // Ini is waited upon by the native thread and is triggered when a valid handle and information class have been placed in the input buffers
-    HANDLE ini;
+    uintptr_t ini;
     // Ini is triggered by the native thread when NtQueryObject is finished and the output buffer has been filled
-    HANDLE done;
+    uintptr_t done;
 
     // Input data for NtQueryObject
-    HANDLE handle;
+    uintptr_t handle;
     int informationClass;
     // Output buffer for NtQueryObject
     byte *buffer;
