@@ -3,6 +3,7 @@ package handle
 // #include "queryobject.h"
 import "C"
 import (
+	"errors"
 	"time"
 	"unsafe"
 
@@ -60,11 +61,17 @@ func (i *Inspector) ntQueryObject(h windows.Handle, informationClass int) (strin
 	if i.nativeExchange.result != 0 {
 		return "", windows.NTStatus(i.nativeExchange.result)
 	}
+
+	var str windows.NTUnicodeString
 	if informationClass == nameInformationClass {
-		return (*objectNameInformation)(unsafe.Pointer(i.nativeExchange.buffer)).Name.String(), nil
+		str = (*objectNameInformation)(unsafe.Pointer(i.nativeExchange.buffer)).Name
 	} else if informationClass == typeInformationClass {
-		return (*objectTypeInformation)(unsafe.Pointer(i.nativeExchange.buffer)).TypeName.String(), nil
+		str = (*objectTypeInformation)(unsafe.Pointer(i.nativeExchange.buffer)).TypeName
 	} else {
 		panic(informationClass)
 	}
+	if str.Buffer == nil {
+		return "", errors.New("NTQueryObject returned nil pointer")
+	}
+	return str.String(), nil
 }
