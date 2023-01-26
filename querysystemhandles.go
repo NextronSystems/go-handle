@@ -2,25 +2,28 @@ package handle
 
 import (
 	"fmt"
-	"reflect"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
+// SystemHandle is the OS based definition of SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX
 type SystemHandle struct {
-	UniqueProcessID       uint16
-	CreatorBackTraceIndex uint16
-	ObjectTypeIndex       uint8
-	HandleAttributes      uint8
-	HandleValue           uint16
 	Object                uint3264
-	GrantedAccess         uint3264
+	UniqueProcessID       uint3264
+	HandleValue           uint3264
+	GrantedAccess         uint32
+	CreatorBackTraceIndex uint16
+	ObjectTypeIndex       uint16
+	HandleAttributes      uint32
+	_                     uint32
 }
 
-type systemHandleInformation struct {
+type systemHandleInformationEx struct {
 	Count uint3264
+	_     uint3264
 	// ... followed by the specified number of handles
+	Handles [1 << 20]SystemHandle
 }
 
 type InsufficientBufferError struct {
@@ -40,7 +43,7 @@ func NtQuerySystemHandles(buf []byte) ([]SystemHandle, error) {
 	// load all handle information to buffer and convert it to systemHandleInformation
 	var requiredBuffer uint32
 	if err := windows.NtQuerySystemInformation(
-		16,
+		0x40, // SystemExtendedHandleInformation
 		unsafe.Pointer(&buf[0]),
 		uint32(len(buf)),
 		&requiredBuffer,
@@ -50,11 +53,7 @@ func NtQuerySystemHandles(buf []byte) ([]SystemHandle, error) {
 		}
 		return nil, err
 	}
-	sysinfo := (*systemHandleInformation)(unsafe.Pointer(&buf[0]))
-	var handles []SystemHandle
-	sh := (*reflect.SliceHeader)(unsafe.Pointer(&handles))
-	sh.Data = uintptr(unsafe.Pointer(&buf[int(unsafe.Sizeof(sysinfo.Count))]))
-	sh.Len = int(sysinfo.Count)
-	sh.Cap = int(sysinfo.Count)
+	sysinfo := (*systemHandleInformationEx)(unsafe.Pointer(&buf[0]))
+	var handles = sysinfo.Handles[:sysinfo.Count:sysinfo.Count]
 	return handles, nil
 }

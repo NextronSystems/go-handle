@@ -10,13 +10,13 @@ import (
 )
 
 type Handle struct {
-	Process uint16
-	Handle  uint16
+	Process uint32
+	Handle  uint3264
 	Name    string
 	Type    string
 }
 
-func QueryHandles(buf []byte, processFilter *uint16, handleTypes []string, queryTimeout time.Duration) (handles []Handle, err error) {
+func QueryHandles(buf []byte, processFilter *uint32, handleTypes []string, queryTimeout time.Duration) (handles []Handle, err error) {
 	systemHandles, err := NtQuerySystemHandles(buf)
 	if err != nil {
 		return nil, err
@@ -34,7 +34,7 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []string, query
 	defer inspector.Close()
 	for _, handle := range systemHandles {
 		log("handle: %#v", handle)
-		if processFilter != nil && *processFilter != handle.UniqueProcessID {
+		if processFilter != nil && *processFilter != uint32(handle.UniqueProcessID) {
 			log("skipping handle of process %d due to process filter %d", handle.UniqueProcessID, processFilter)
 			continue
 		}
@@ -67,7 +67,7 @@ func QueryHandles(buf []byte, processFilter *uint16, handleTypes []string, query
 			continue
 		}
 		handles = append(handles, Handle{
-			Process: handle.UniqueProcessID,
+			Process: uint32(handle.UniqueProcessID),
 			Handle:  handle.HandleValue,
 			Name:    name,
 			Type:    handleType,

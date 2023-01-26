@@ -16,16 +16,16 @@ import "C"
 // Common elements such as type ID to name mappings and process handles are cached and reused.
 type Inspector struct {
 	nativeExchange *C.exchange_t
-	typeMapping    map[uint8]string
-	processHandles map[uint16]windows.Handle
+	typeMapping    map[uint16]string
+	processHandles map[uint32]windows.Handle
 	timeout        time.Duration
 	ntQueryThread  nativeThread
 }
 
 func NewInspector(timeout time.Duration) *Inspector {
 	query := &Inspector{
-		typeMapping:    map[uint8]string{},
-		processHandles: map[uint16]windows.Handle{},
+		typeMapping:    map[uint16]string{},
+		processHandles: map[uint32]windows.Handle{},
 		timeout:        timeout,
 		nativeExchange: &C.exchange_t{},
 	}
@@ -55,7 +55,7 @@ func (i *Inspector) Close() {
 	i.processHandles = map[uint32]windows.Handle{}
 }
 
-var ownpid = uint16(os.Getpid())
+var ownpid = uint3264(os.Getpid())
 
 // LookupHandleType returns the type name for the handle. If possible, a cached type
 // is used; otherwise, the handle is duplicated and its type is looked up.
@@ -102,15 +102,16 @@ func (i *Inspector) LookupHandleName(handle SystemHandle) (name string, err erro
 // duplicateHandle duplicates a handle into our own process. It uses a cache for
 // process handles that are used repeatedly.
 func (i *Inspector) duplicateHandle(handle SystemHandle) (windows.Handle, error) {
-	p, hasCachedHandle := i.processHandles[handle.UniqueProcessID]
+	pid := uint32(handle.UniqueProcessID)
+	p, hasCachedHandle := i.processHandles[pid]
 	if !hasCachedHandle {
 		var err error
 		p, err = windows.OpenProcess(
 			windows.PROCESS_DUP_HANDLE,
 			true,
-			uint32(handle.UniqueProcessID),
+			pid,
 		)
-		i.processHandles[handle.UniqueProcessID] = p
+		i.processHandles[pid] = p
 		if err != nil {
 			return 0, err
 		}
