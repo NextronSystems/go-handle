@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"time"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -28,10 +27,8 @@ func NewInspector(timeout time.Duration) *Inspector {
 		typeMapping:    map[uint8]string{},
 		processHandles: map[uint16]windows.Handle{},
 		timeout:        timeout,
-		nativeExchange: (*C.exchange_t)(C.malloc(C.size_t(unsafe.Sizeof(C.exchange_t{})))),
+		nativeExchange: &C.exchange_t{},
 	}
-	query.nativeExchange.bufferLength = 1000
-	query.nativeExchange.buffer = (*C.byte)(C.malloc(C.size_t(query.nativeExchange.bufferLength)))
 	ini, _ := windows.CreateEvent(nil, 0, 0, nil)
 	query.nativeExchange.ini = C.uintptr_t(ini)
 	done, _ := windows.CreateEvent(nil, 0, 0, nil)
@@ -44,16 +41,18 @@ func NewInspector(timeout time.Duration) *Inspector {
 func (i *Inspector) Close() {
 	if !i.ntQueryThread.IsZero() {
 		i.ntQueryThread.Terminate()
+		i.ntQueryThread = nativeThread{}
 	}
-	C.free(unsafe.Pointer(i.nativeExchange.buffer))
 	windows.CloseHandle(windows.Handle(i.nativeExchange.ini))
+	i.nativeExchange.ini = 0
 	windows.CloseHandle(windows.Handle(i.nativeExchange.done))
-	C.free(unsafe.Pointer(i.nativeExchange))
+	i.nativeExchange.done = 0
 	for _, handle := range i.processHandles {
 		if handle != 0 {
 			windows.CloseHandle(handle)
 		}
 	}
+	i.processHandles = map[uint32]windows.Handle{}
 }
 
 var ownpid = uint16(os.Getpid())
@@ -131,12 +130,6 @@ func (i *Inspector) duplicateHandle(handle SystemHandle) (windows.Handle, error)
 		return 0, err
 	}
 	return h, nil
-}
-
-// ntObjectQuery describes the parameters for a single call to NtQueryObject.
-type ntObjectQuery struct {
-	informationClass int
-	handle           windows.Handle
 }
 
 var ErrTimeout = errors.New("NtQueryObject deadlocked")

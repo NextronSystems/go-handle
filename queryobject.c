@@ -12,7 +12,7 @@ int queryObjects(exchange_t* exchange) {
         if (WaitForSingleObject((HANDLE) exchange->ini, INFINITE) != WAIT_OBJECT_0) {
             return 1;
         }
-        exchange->result = ntQueryObject((HANDLE) exchange->handle, exchange->informationClass, exchange->buffer, exchange->bufferLength, 0);
+        exchange->result = ntQueryObject((HANDLE) exchange->handle, exchange->informationClass, exchange->buffer, BUFFER_LENGTH, 0);
         SetEvent((HANDLE) exchange->done);
     }
     return 0;

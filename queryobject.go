@@ -64,9 +64,9 @@ func (i *Inspector) ntQueryObject(h windows.Handle, informationClass int) (strin
 
 	var str windows.NTUnicodeString
 	if informationClass == nameInformationClass {
-		str = (*objectNameInformation)(unsafe.Pointer(i.nativeExchange.buffer)).Name
+		str = (*objectNameInformation)(unsafe.Pointer(&i.nativeExchange.buffer)).Name
 	} else if informationClass == typeInformationClass {
-		str = (*objectTypeInformation)(unsafe.Pointer(i.nativeExchange.buffer)).TypeName
+		str = (*objectTypeInformation)(unsafe.Pointer(&i.nativeExchange.buffer)).TypeName
 	} else {
 		panic(informationClass)
 	}

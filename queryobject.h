@@ -1,6 +1,8 @@
 #include <windows.h>
 #include <stdint.h>
 
+#define BUFFER_LENGTH 1000
+
 typedef struct {
     // Ini is waited upon by the native thread and is triggered when a valid handle and information class have been placed in the input buffers
     uintptr_t ini;
@@ -11,8 +13,7 @@ typedef struct {
     uintptr_t handle;
     int informationClass;
     // Output buffer for NtQueryObject
-    byte *buffer;
-    int bufferLength;
+    byte buffer[BUFFER_LENGTH];
     // NtQueryObject return value
     int result;
 } exchange_t;
