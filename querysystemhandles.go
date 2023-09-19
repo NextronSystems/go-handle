@@ -1,6 +1,7 @@
 package handle
 
 import (
+	"errors"
 	"fmt"
 	"unsafe"
 
@@ -23,7 +24,7 @@ type systemHandleInformationEx struct {
 	Count uint3264
 	_     uint3264
 	// ... followed by the specified number of handles
-	Handles [1 << 20]SystemHandle
+	Handles [maxHandleCount]SystemHandle
 }
 
 type InsufficientBufferError struct {
@@ -54,6 +55,9 @@ func NtQuerySystemHandles(buf []byte) ([]SystemHandle, error) {
 		return nil, err
 	}
 	sysinfo := (*systemHandleInformationEx)(unsafe.Pointer(&buf[0]))
+	if int(sysinfo.Count) > len(sysinfo.Handles) {
+		return nil, errors.New("too many handles on system")
+	}
 	var handles = sysinfo.Handles[:sysinfo.Count:sysinfo.Count]
 	return handles, nil
 }
