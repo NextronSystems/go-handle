@@ -4,6 +4,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// test test
 var (
 	kernel32 = windows.NewLazyDLL("kernel32.dll")
 
