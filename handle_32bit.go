@@ -1,4 +1,5 @@
-//+build !amd64
+//go:build 386 || arm
+// +build 386 arm
 
 package handle
 
